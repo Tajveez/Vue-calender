@@ -1,16 +1,18 @@
 <template>
   <v-row class="fill-height"> 
-    <h1>------------> till 30:00</h1>
     <v-col>
       <v-sheet height="64">
         <v-toolbar flat color="white">
+          <v-btn class="mr-4" color="primary" @click="dialog = true">
+            <v-icon small>mdi-plus</v-icon>Add New
+          </v-btn>
           <v-btn outlined class="mr-4" color="grey darken-2" @click="setToday">
             Today
           </v-btn>
           <v-btn fab text small color="grey darken-2" @click="prev">
             <v-icon small>mdi-chevron-left</v-icon>
           </v-btn>
-          <v-btn fab text small color="grey darken-2" @click="next">
+          <v-btn fab text small color="grey darken-2" @click="next" class="mr-4">
             <v-icon small>mdi-chevron-right</v-icon>
           </v-btn>
           <v-toolbar-title>{{ title }}</v-toolbar-title>
@@ -72,20 +74,41 @@
               :color="selectedEvent.color"
               dark
             >
-              <v-btn icon>
+              <v-btn @click="currentlyEditing = selectedEvent.id" icon>
                 <v-icon>mdi-pencil</v-icon>
               </v-btn>
-              <v-toolbar-title v-html="selectedEvent.name"></v-toolbar-title>
+              <v-toolbar-title v-if="currentlyEditing !== selectedEvent.id" v-html="selectedEvent.name"></v-toolbar-title>
+              <div v-else>
+                <input type="text" v-model="selectedEvent.name" style="width: 100%; padding: 5px;" >
+              </div>
               <v-spacer></v-spacer>
               <v-btn icon>
                 <v-icon>mdi-heart</v-icon>
               </v-btn>
-              <v-btn icon>
-                <v-icon>mdi-dots-vertical</v-icon>
+              <v-btn @click="deleteEvent(selectedEvent)" icon>
+                <v-icon>mdi-delete</v-icon>
               </v-btn>
+              <!-- <v-btn icon>
+                <v-icon>mdi-dots-vertical</v-icon>
+              </v-btn> -->
             </v-toolbar>
             <v-card-text>
-              <span v-html="selectedEvent.details"></span>
+              <span v-html="selectedEvent.details" v-if="currentlyEditing !== selectedEvent.id"></span>
+              <div v-else>
+                <textarea-autosize
+                  v-model="selectedEvent.details"
+                  type="text"
+                  style="width: 100%; padding: 5px;"
+                  :min-height="100"
+                  placeholder="Add event details"
+                >
+                </textarea-autosize>
+              </div>
+            </v-card-text>
+            <v-card-text v-if="currentlyEditing == selectedEvent.id">
+              <input style="background: white" data-date="YYYY-MM-DD" data-date-format="DD MMMM YYYY" type="date" v-model="selectedEvent.start">
+              <input style="background: white" data-date="YYYY-MM-DD" data-date-format="DD MMMM YYYY" type="date" v-model="selectedEvent.end">
+              <v-color-picker v-model="selectedEvent.color" hide-inputs></v-color-picker>
             </v-card-text>
             <v-card-actions>
               <v-btn
@@ -93,12 +116,50 @@
                 color="secondary"
                 @click="selectedOpen = false"
               >
-                Cancel
+                Close
+              </v-btn>
+              <v-btn
+                v-if="currentlyEditing == selectedEvent.id"
+                color="primary"
+                @click="updateEvent(selectedEvent)"
+                class="mr-4"
+              >
+                Save
               </v-btn>
             </v-card-actions>
           </v-card>
         </v-menu>
       </v-sheet>
+
+      <!-- Add new Event Dialog -->
+      <v-dialog v-model="dialog" max-width="500">
+        <v-card>
+          <v-container>
+            <v-form @submit.prevent="addNewEvent">
+              <v-text-field label="Event Name" v-model="name" type="text"></v-text-field>
+              <v-textarea
+                  label="Event Details"
+                  type="text"
+                  v-model="details"
+                  style="width: 100%; padding: 5px;"
+                  :min-height="100"
+                ></v-textarea>
+              <v-text-field label="Start date" v-model="start" type="date"></v-text-field>
+              <v-text-field label="End date" v-model="end" type="date"></v-text-field>
+              <v-color-picker label="Color" v-model="color" hide-inputs></v-color-picker>
+              <v-btn
+                type="submit"
+                color="primary"
+                class="mr-4"
+                @click.stop="dialog = false"
+              >
+                Create Event
+              </v-btn>
+            </v-form>
+          </v-container>
+        </v-card>
+      </v-dialog>
+
     </v-col>
   </v-row>
 </template>
@@ -126,8 +187,9 @@ import { db } from '@/main'
       selectedElement: null,
       selectedOpen: false,
       events: [],
-      dialog: [],
+      dialog: false,
       colors: ['blue', 'indigo', 'deep-purple', 'cyan', 'green', 'orange', 'grey darken-1'],
+      names: []
     }),
     computed: {
       title () {
@@ -176,10 +238,53 @@ import { db } from '@/main'
           let appData = doc.data()
           appData.id = doc.id;
           events.push(appData)
+          this.names.push(appData.name);
           console.log(doc.data())
         });
         this.events = events;
         // console.log(snapshot);
+      },
+      async addNewEvent() {
+        if(this.name && this.start && this.end){
+          await db.collection('calendarevents').add({
+            name: this.name,
+            details: this.details,
+            start: this.start,
+            end: this.end,
+            color: this.color.hex
+          })
+          this.getEvents()
+          this.resetData()
+        } else {
+          alert('Please, fill the required fields')
+        }
+      },
+      async deleteEvent(ev) {
+        await db.collection('calendarevents').doc(ev.id).delete();
+        this.selectedOpen = false
+        this.getEvents()
+      },
+      async updateEvent(ev) {
+        await db.collection('calendarevents')
+              .doc(ev.id)
+              .update(
+                { 
+                  name: ev.name,
+                  details: ev.details,
+                  start: ev.start,
+                  end: ev.end,
+                  color: ev.color
+                }
+              );
+        this.selectedOpen = false;
+        this.currentlyEditing = null;
+      },
+      resetData() {
+        this.name = null
+        this.details = null
+        this.start = null
+        this.end = null
+        this.color = null
       },
       viewDay ({ date }) {
         this.focus = date
@@ -214,31 +319,8 @@ import { db } from '@/main'
         nativeEvent.stopPropagation()
       },
       updateRange ({ start, end }) {
-        const events = []
-
-        const min = new Date(`${start.date}T00:00:00`)
-        const max = new Date(`${end.date}T23:59:59`)
-        const days = (max.getTime() - min.getTime()) / 86400000
-        const eventCount = this.rnd(days, days + 20)
-
-        for (let i = 0; i < eventCount; i++) {
-          const allDay = this.rnd(0, 3) === 0
-          const firstTimestamp = this.rnd(min.getTime(), max.getTime())
-          const first = new Date(firstTimestamp - (firstTimestamp % 900000))
-          const secondTimestamp = this.rnd(2, allDay ? 288 : 8) * 900000
-          const second = new Date(first.getTime() + secondTimestamp)
-
-          events.push({
-            name: this.names[this.rnd(0, this.names.length - 1)],
-            start: this.formatDate(first, !allDay),
-            end: this.formatDate(second, !allDay),
-            color: this.colors[this.rnd(0, this.colors.length - 1)],
-          })
-        }
-
         this.start = start
         this.end = end
-        this.events = events
       },
       nth (d) {
         return d > 3 && d < 21
